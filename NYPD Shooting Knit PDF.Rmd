@@ -1,0 +1,114 @@
+---
+title: "NYPD Shooting Rmd"
+author: "A. Sankaran"
+date: "2023-10-09"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+First, I'm going to library several packages we'll need.
+```{r library, echo=TRUE}
+library(tidyverse)
+library(sessioninfo)
+library(lubridate)
+library(dplyr)
+```
+
+Next, I'm going to read in the data from the csv file.
+
+```{r data, echo=TRUE}
+csv_url <- "https://data.cityofnewyork.us/api/views/833y-fsy8/rows.csv?accessType=DOWNLOAD"
+data = read_csv(csv_url)
+summary(data)
+```
+
+## Data Tidying/Transforming
+
+Now comes the tidying and transforming of the data. These process includes tasks like removing extraneous variables/columns such as latitude, longitude, and coordinates. It also involves converting dates into date objects and categorical variables like the victim sex, victim race, and city burrows into factors.
+
+```{r cleanup, echo=TRUE}
+data <- data %>% select(-c(Latitude, Longitude, Lon_Lat, X_COORD_CD, Y_COORD_CD))
+data$OCCUR_DATE <- mdy(data$OCCUR_DATE)
+unique(data$VIC_RACE)
+vic_race_levels <- c("BLACK", "WHITE", "WHITE HISPANIC", "BLACK HISPANIC", "ASIAN / PACIFIC ISLANDER", "AMERICAN INDIAN/ALASKAN NATIVE")
+data$VIC_RACE <- factor(data$VIC_RACE, levels = vic_race_levels)
+unique(data$VIC_SEX)
+vic_sex_levels <- c("M", "F")
+data$VIC_SEX <- factor(data$VIC_SEX, levels = vic_sex_levels)
+unique(data$BORO)
+burrows <- c("QUEENS", "BRONX", "BROOKLYN", "MANHATTAN", "STATEN ISLAND")
+data$BORO <- factor(data$BORO, levels = burrows)
+data$Year <- format(data$OCCUR_DATE, "%Y")
+summary(data)
+```
+
+## Visualizations and Analysis
+
+From taking a glance at the data, I became interested in knowing more about the distribution of shooting victims for each of the burrows and hence, made a bar chart.
+
+```{r bar_chart, echo=TRUE}
+nyc_burrows <- data$BORO
+data %>%
+  ggplot(aes(x = nyc_burrows)) + geom_bar() +
+  labs(x = "NYC Burrow", y = "Count", title = "Frequency of Shootings in each Burrow")
+```
+
+It can be seen from the above bar chart that the distribution is fairly dissimilar. The no. of victims for each burrow varies a sizable amount where the highest amount took place in Brooklyn and the least amount occurred in Staten Island. This leads me to ponder what the distribution across the 5 burrows is per year. Did it remain mostly the same as the years went by or was it very much different? These questions can be answered by constructing a line graph that shows the distribution of shootings for each burrow over time.
+
+```{r line_chart, echo=TRUE}
+count_data <- data %>% count(data$Year, data$BORO)
+count_data <- count_data %>% rename(Year = "data$Year", Burrow = "data$BORO")
+count_data %>%
+  ggplot(aes(x = Year, y = n, group = Burrow)) +
+  geom_line(aes(color = Burrow)) + geom_point(aes(color = Burrow)) +
+  labs(y = "Count", title = "Frequency of Shootings in each Burrow over the Years") +
+  theme(legend.position = "bottom")
+```
+
+According to the bar graph, the ranking from highest to smallest for the total number of shootings goes Brooklyn, Bronx, Queens, Manhattan, and Staten Island. The line graph which plots the number of shootings per year for each burrow shows the same ranking for almost all the years. Brooklyn had the most shootings every year except 2021 and Staten Island had the least shootings every year.
+
+Something interesting I noticed is for all the burrows except Staten Island, the number of shootings decreased from 2006 to 2019. Brooklyn and Bronx had a deeper decline where the no. of shootings went down by nearly a whole half, whereas for Manhattan and Queens, the decline was a lot more gradual. However from 2019 onward, the number of shootings for those 4 burrows went back up. The highest jump for all 4 burrows occurred between 2019 and 2020. I think this increase can be attributed to the major incidents that occurred in 2020 such as the onset of the COVID-19 pandemic as well as the nationwide riots against police violence. One question that arises from these results is whether the distribution of shootings that result in murder shares similar trends. Can murder shootings be predicted by total shootings for each burrow per year with a linear model?
+
+
+Now, I will construct a linear model and look at murders being a function of total shootings per burrow per year. 
+
+```{r model, echo=TRUE}
+pred_data <- data %>% count(data$Year, data$BORO, data$STATISTICAL_MURDER_FLAG)
+pred_data <- pred_data %>% rename(Murder_Flag = "data$STATISTICAL_MURDER_FLAG")
+pred_data <- pred_data %>% rename(Year = "data$Year", Murder = "n")
+pred_data <- pred_data %>% rename(Burrow = "data$BORO")
+total_count <- data %>% count(data$Year, data$BORO)
+pred_data <- pred_data %>% filter(pred_data$Murder_Flag == "TRUE")
+pred_data <- pred_data %>% mutate(Total = total_count$n)
+mod <- lm(Murder ~ Total, data = pred_data)
+summary(mod)
+pred_data <- pred_data %>% mutate(pred = predict(mod))
+pred_data$pred <- as.integer(pred_data$pred)
+pred_data %>% ggplot() +
+  geom_point(aes(x = Total, y = Murder), color = "blue") +
+  geom_point(aes(x = Total, y = pred), color = "red") +
+  labs(x = "No. of Shootings", y = "No. of Murders")
+
+```
+
+
+The above scatter plot shows a linear distribution. More specifically, the r-coefficient is 0.97 which indicates a strong association between the number of shootings and number of murders.
+
+
+## Conclusion
+
+A personal bias of mine is my knowledge of NYC based on experiences and perspectives I have heard from others who grew up in the various burrows. After constructing visualizations to answer the questions I had and after analyzing the results, I discovered that some of what I thought to be true isn't actually the case. The insights I gained were unexpected and surprising. I think this bias is difficult to mitigate because NYC is one of the most popular cities in the world, if not the most popular. We have so many beliefs about the city that are shaped by the mass media we consume ranging from TV, movies, radio, etc. One possible way to mitigate this bias is to keep in mind that beliefs about the city that stem from fiction may not be reality. The importance of maintaining that distinction could go a long way in approaching data like this with objectivity.
+
+
+```{r sessioninfo, echo=TRUE}
+sessioninfo::session_info()
+```
+
+
+
+
